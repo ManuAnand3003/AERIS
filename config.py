@@ -1,20 +1,21 @@
 """
 AERIS Configuration File
-Edit paths to match your LM Studio models folder
+Local paths and model routing for the current AERIS runtime.
 """
 
-import os
 from pathlib import Path
 
 # Base paths
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / "data"
+DATA_DIR = Path.home() / "aeris" / "data"
 CONVERSATIONS_DIR = DATA_DIR / "conversations"
 MEMORY_DB_DIR = DATA_DIR / "memory_db"
+IDENTITY_DIR = DATA_DIR / "identity"
+LOGS_DIR = DATA_DIR / "logs"
+TOOLS_DIR = DATA_DIR / "tools"
 
-# Model paths - EDIT THESE to match your LM Studio models location
-# Default LM Studio path: C:\Users\[YourUsername]\.cache\lm-studio\models
-MODELS_DIR = Path(r"D:\prompt-lab\models")
+# Model paths
+MODELS_DIR = Path("/mnt/win_d/LLMs/lmstudio")
 
 # Model definitions with GPU layer offloading
 MODELS = {
@@ -22,7 +23,7 @@ MODELS = {
     "hermes_3_8b": {
         "path": MODELS_DIR / "NousResearch" / "Hermes-3-Llama-3.1-8B-GGUF" / "Hermes-3-Llama-3.1-8B.Q6_K.gguf",
         "n_gpu_layers": -1,
-        "context_size": 8192,
+        "context_size": 32768,
         "role": "personality",
         "speed": "fast"
     },
@@ -242,6 +243,7 @@ ROUTING_RULES = {
 # Memory settings
 MEMORY_CONFIG = {
     "embedding_model": "nomic-ai/nomic-embed-text-v1.5",
+    "embedding_backend": "hash_local",  # hash_local | sentence_transformer
     "chunk_size": 500,  # Characters per memory chunk
     "chunk_overlap": 50,
     "max_results": 5,  # Number of relevant memories to retrieve
@@ -252,6 +254,10 @@ MEMORY_CONFIG = {
 GPU_CONFIG = {
     "n_gpu_layers": 35,  # Default layers on GPU
     "n_batch": 512,
+    "n_batch_large_ctx": 256,
+    "n_batch_huge_ctx": 128,
+    "large_ctx_threshold": 16384,
+    "huge_ctx_threshold": 32768,
     "n_threads": 8,  # Adjust based on your CPU
     "use_mlock": True,  # Lock model in RAM
     "use_mmap": True,  # Memory-map model file
@@ -268,5 +274,5 @@ GENERATION_CONFIG = {
 }
 
 # Create directories if they don't exist
-for dir_path in [DATA_DIR, CONVERSATIONS_DIR, MEMORY_DB_DIR]:
+for dir_path in [DATA_DIR, CONVERSATIONS_DIR, MEMORY_DB_DIR, IDENTITY_DIR, LOGS_DIR, TOOLS_DIR]:
     dir_path.mkdir(parents=True, exist_ok=True)
