@@ -115,6 +115,50 @@ def resolve_tool_intent(user_text: str) -> tuple[str, dict] | None:
         if path:
             return "read_file", {"path": path}
 
+    vscode_open_match = re.search(
+        r"^vscode\s+open\s+(.+?)(?::(\d+))?(?:\s+with\s+approval\s+([a-zA-Z0-9]+))?$",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if vscode_open_match:
+        path = vscode_open_match.group(1).strip().strip('"').strip("'")
+        line_text = vscode_open_match.group(2)
+        approval_id = vscode_open_match.group(3)
+        params: dict = {"path": path}
+        if line_text:
+            params["line"] = int(line_text)
+        if approval_id:
+            params["approval_id"] = approval_id
+        return "vscode_open_file", params
+
+    vscode_task_match = re.search(
+        r"^vscode\s+task\s+(.+?)(?:\s+with\s+approval\s+([a-zA-Z0-9]+))?$",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if vscode_task_match:
+        command = vscode_task_match.group(1).strip()
+        approval_id = vscode_task_match.group(2)
+        params: dict = {"command": command}
+        if approval_id:
+            params["approval_id"] = approval_id
+        return "vscode_run_task", params
+
+    patch_with_approval = re.search(
+        r"^vscode\s+patch\s+(.+?)\s+:::\s+(.+?)\s+:::\s+(.+?)(?:\s+with\s+approval\s+([a-zA-Z0-9]+))?$",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if patch_with_approval:
+        path = patch_with_approval.group(1).strip().strip('"').strip("'")
+        old_text = patch_with_approval.group(2)
+        new_text = patch_with_approval.group(3)
+        approval_id = patch_with_approval.group(4)
+        params: dict = {"path": path, "old": old_text, "new": new_text}
+        if approval_id:
+            params["approval_id"] = approval_id
+        return "vscode_patch_file", params
+
     return None
 
 
@@ -184,7 +228,7 @@ async def main():
     Path("/tmp/aeris_last_msg").write_text(wake_msg[:80], encoding="utf-8")
     print_health(model_manager)
     print("─" * 60)
-    print("  'lock in' / 'unlock'  ·  'status'  ·  'memory'  ·  'health'  ·  'features'  ·  'feature web on/off'  ·  'feature widget on/off'  ·  'autopilot on/off'  ·  'policy status/balanced/full_online/eco'  ·  'god mode on/off/status/scope'  ·  'approvals'  ·  'approve <id>'  ·  'reject <id>'  ·  'cyber self/home/sandbox'  ·  'voice on/off/status'  ·  'quit'")
+    print("  'lock in' / 'unlock'  ·  'status'  ·  'memory'  ·  'health'  ·  'features'  ·  'feature web on/off'  ·  'feature widget on/off'  ·  'autopilot on/off'  ·  'policy status/balanced/full_online/eco'  ·  'god mode on/off/status/scope'  ·  'approvals'  ·  'approve <id>'  ·  'reject <id>'  ·  'vscode open|task|patch'  ·  'cyber self/home/sandbox'  ·  'voice on/off/status'  ·  'quit'")
     print("─" * 60 + "\n")
 
     voice_enabled = False

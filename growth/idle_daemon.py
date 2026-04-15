@@ -12,6 +12,7 @@ from memory.knowledge_graph import knowledge_graph
 from personality.identity import identity
 from system.monitor import monitor
 from growth.trainer import run_nightly_finetune
+from growth.review import run_nightly_review, run_weekly_report
 import httpx
 from bs4 import BeautifulSoup
 
@@ -34,6 +35,10 @@ class IdleDaemon:
         self.scheduler.add_job(self.study, "interval", hours=3)
         # Self-reflection — daily at 3am
         self.scheduler.add_job(self.reflect, "cron", hour=3)
+        # Nightly quality review — daily at 3:30am
+        self.scheduler.add_job(run_nightly_review, "cron", hour=3, minute=30)
+        # Weekly quality report — Sunday at 4:00am
+        self.scheduler.add_job(run_weekly_report, "cron", day_of_week="sun", hour=4, minute=0)
         self.scheduler.start()
         logger.info("Idle daemon started")
         self._running = True
@@ -150,6 +155,7 @@ class IdleDaemon:
             logger.warning(f"[Idle] Reflection logging failed: {e}")
 
         await run_nightly_finetune()
+        await run_nightly_review()
         
         logger.info("[Idle] Reflection complete")
 

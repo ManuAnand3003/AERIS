@@ -11,6 +11,7 @@ from datetime import datetime
 from loguru import logger
 import config
 from system.capability_guard import capability_guard
+from agency.vscode_bridge import vscode_bridge
 
 
 TOOLS_DIR = config.DATA_DIR / "tools"
@@ -100,6 +101,21 @@ BASE_TOOLS = {
         "parameters": {"id": "string"},
         "builtin": True
     },
+    "vscode_open_file": {
+        "description": "Open a file in VS Code (approval-gated)",
+        "parameters": {"path": "string", "line": "integer(optional)", "approval_id": "string(optional)"},
+        "builtin": True
+    },
+    "vscode_patch_file": {
+        "description": "Apply a single replace patch to a file (approval-gated)",
+        "parameters": {"path": "string", "old": "string", "new": "string", "approval_id": "string(optional)"},
+        "builtin": True
+    },
+    "vscode_run_task": {
+        "description": "Run a workspace task command (approval-gated)",
+        "parameters": {"command": "string", "approval_id": "string(optional)"},
+        "builtin": True
+    },
 }
 
 
@@ -133,7 +149,7 @@ class ToolRegistry:
                 return Path(params["path"]).read_text(encoding="utf-8")
             
             elif name == "write_file":
-                decision = capability_guard.check_write_path(params["path"])
+                decision = capability_guard.check_write_path(params["path"], params.get("approval_id"))
                 if not decision.allowed:
                     if decision.pending_approval and decision.approval_id:
                         return f"[Approval required: {decision.reason}. Use: approve {decision.approval_id}]"
@@ -146,7 +162,7 @@ class ToolRegistry:
             
             elif name == "run_shell":
                 cmd = params["command"]
-                decision = capability_guard.check_command(cmd)
+                decision = capability_guard.check_command(cmd, params.get("approval_id"))
                 if not decision.allowed:
                     if decision.pending_approval and decision.approval_id:
                         return f"[Approval required: {decision.reason}. Use: approve {decision.approval_id}]"
@@ -224,6 +240,52 @@ class ToolRegistry:
                 if not approval_id:
                     return "Missing approval id"
                 return "Approval rejected." if capability_guard.reject(approval_id) else "Approval id not found."
+
+            elif name == "vscode_open_file":
+                path = str(params.get("path", "")).strip()
+                if not path:
+                    return "Missing path"
+                approval_id = params.get("approval_id")
+                decision = capability_guard.check_command(f"vscode_open {path}", approval_id)
+                if not decision.allowed:
+                    if decision.pending_approval and decision.approval_id:
+                        return f"[Approval required: {decision.reason}. Use: approve {decision.approval_id}, then rerun with approval_id={decision.approval_id}]"
+                    return f"[Blocked: {decision.reason}]"
+                capability_guard.audit("vscode_open_file", path)
+                line = params.get("line")
+                try:
+                    line_int = int(line) if line is not None else None
+                except Exception:
+                    line_int = None
+                return vscode_bridge.open_file(path, line_int)
+
+            elif name == "vscode_patch_file":
+                path = str(params.get("path", "")).strip()
+                old_text = str(params.get("old", ""))
+                new_text = str(params.get("new", ""))
+                if not path or old_text == "":
+                    return "Missing path or old text"
+                approval_id = params.get("approval_id")
+                decision = capability_guard.check_write_path(path, approval_id)
+                if not decision.allowed:
+                    if decision.pending_approval and decision.approval_id:
+                        return f"[Approval required: {decision.reason}. Use: approve {decision.approval_id}, then rerun with approval_id={decision.approval_id}]"
+                    return f"[Blocked: {decision.reason}]"
+                capability_guard.audit("vscode_patch_file", path)
+                return vscode_bridge.patch_file(path, old_text, new_text)
+
+            elif name == "vscode_run_task":
+                command = str(params.get("command", "")).strip()
+                if not command:
+                    return "Missing command"
+                approval_id = params.get("approval_id")
+                decision = capability_guard.check_command(command, approval_id)
+                if not decision.allowed:
+                    if decision.pending_approval and decision.approval_id:
+                        return f"[Approval required: {decision.reason}. Use: approve {decision.approval_id}, then rerun with approval_id={decision.approval_id}]"
+                    return f"[Blocked: {decision.reason}]"
+                capability_guard.audit("vscode_run_task", command[:240])
+                return vscode_bridge.run_task(command)
 
         except Exception as e:
             return f"[Tool error: {e}]"

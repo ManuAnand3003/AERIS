@@ -19,6 +19,7 @@ import config
 
 MODE_FILE = config.DATA_DIR / "identity" / "capability_mode.json"
 APPROVALS_FILE = config.DATA_DIR / "identity" / "pending_approvals.json"
+GRANTS_FILE = config.DATA_DIR / "identity" / "granted_approvals.json"
 AUDIT_LOG = config.LOGS_DIR / "god_mode_actions.log"
 
 
@@ -119,7 +120,7 @@ class CapabilityGuard:
 
         return CapabilityDecision(False, "blocked: path outside normal-mode scope")
 
-    def check_command(self, cmd: str) -> CapabilityDecision:
+    def check_command(self, cmd: str, approval_id: str | None = None) -> CapabilityDecision:
         low = cmd.lower()
         hard_block = ["mkfs", "dd if=", ":(){", "fork bomb", "rm -rf /"]
         if any(token in low for token in hard_block):
@@ -130,6 +131,8 @@ class CapabilityGuard:
 
         if self.mode == "god":
             if self._is_high_risk_command(low):
+                if approval_id and self.consume_grant(approval_id, "run_shell"):
+                    return CapabilityDecision(True, "allowed via approval grant")
                 approval_id = self.request_approval("run_shell", cmd, "high-risk system command")
                 return CapabilityDecision(
                     False,
@@ -144,7 +147,7 @@ class CapabilityGuard:
 
         return CapabilityDecision(True, "allowed")
 
-    def check_write_path(self, path_text: str) -> CapabilityDecision:
+    def check_write_path(self, path_text: str, approval_id: str | None = None) -> CapabilityDecision:
         base = self.check_path(path_text)
         if not base.allowed:
             return base
@@ -152,6 +155,8 @@ class CapabilityGuard:
         if self.mode == "god":
             low = path_text.strip().lower()
             if any(low.startswith(prefix) for prefix in self._high_risk_path_prefixes):
+                if approval_id and self.consume_grant(approval_id, "write_file"):
+                    return CapabilityDecision(True, "allowed via approval grant")
                 approval_id = self.request_approval("write_file", path_text, "high-risk system path write")
                 return CapabilityDecision(
                     False,
@@ -164,6 +169,9 @@ class CapabilityGuard:
 
     def request_approval(self, action: str, target: str, reason: str) -> str:
         approvals = self._read_approvals()
+        for existing in approvals:
+            if existing.get("action") == action and existing.get("target") == target and existing.get("reason") == reason:
+                return str(existing.get("id"))
         approval_id = uuid4().hex[:8]
         approvals.append(
             {
@@ -183,10 +191,23 @@ class CapabilityGuard:
 
     def approve(self, approval_id: str) -> bool:
         approvals = self._read_approvals()
-        kept = [a for a in approvals if a.get("id") != approval_id]
-        if len(kept) == len(approvals):
+        selected = next((a for a in approvals if a.get("id") == approval_id), None)
+        if selected is None:
             return False
+        kept = [a for a in approvals if a.get("id") != approval_id]
         self._write_approvals(kept)
+
+        grants = self._read_grants()
+        grants.append(
+            {
+                "id": selected.get("id"),
+                "action": selected.get("action"),
+                "target": selected.get("target"),
+                "reason": selected.get("reason"),
+                "approved": datetime.now().isoformat(),
+            }
+        )
+        self._write_grants(grants)
         self.audit("approval_granted", approval_id)
         return True
 
@@ -197,6 +218,16 @@ class CapabilityGuard:
             return False
         self._write_approvals(kept)
         self.audit("approval_rejected", approval_id)
+        return True
+
+    def consume_grant(self, approval_id: str, action: str) -> bool:
+        grants = self._read_grants()
+        selected = next((g for g in grants if g.get("id") == approval_id and g.get("action") == action), None)
+        if selected is None:
+            return False
+        kept = [g for g in grants if not (g.get("id") == approval_id and g.get("action") == action)]
+        self._write_grants(kept)
+        self.audit("approval_consumed", f"{approval_id}:{action}")
         return True
 
     def audit(self, action: str, target: str) -> None:
@@ -238,6 +269,20 @@ class CapabilityGuard:
     def _write_approvals(self, approvals: list[dict]) -> None:
         APPROVALS_FILE.parent.mkdir(parents=True, exist_ok=True)
         APPROVALS_FILE.write_text(json.dumps(approvals, indent=2), encoding="utf-8")
+
+    def _read_grants(self) -> list[dict]:
+        try:
+            if GRANTS_FILE.exists():
+                data = json.loads(GRANTS_FILE.read_text(encoding="utf-8"))
+                if isinstance(data, list):
+                    return data
+        except Exception as e:
+            logger.warning(f"Failed to read approval grants: {e}")
+        return []
+
+    def _write_grants(self, grants: list[dict]) -> None:
+        GRANTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        GRANTS_FILE.write_text(json.dumps(grants, indent=2), encoding="utf-8")
 
 
 capability_guard = CapabilityGuard()

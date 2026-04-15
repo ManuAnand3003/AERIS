@@ -25,7 +25,7 @@ class FeatureController:
     def __init__(self) -> None:
         self.web_process: asyncio.subprocess.Process | None = None
         self.autopilot_enabled = True
-        self.policy_profile = "balanced"
+        self.policy_profile = "full_online"
         self._last_action_ts = 0.0
         self._widget_window = "aeris-widget-bl"
         self._eww_config_dir = str(Path.home() / ".config" / "eww" / "aeris")
