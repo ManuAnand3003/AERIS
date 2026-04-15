@@ -1,0 +1,53 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Python environments and editor runtime
+.venv/
+venv/
+.env
+.env.*
+.python-version
+
+# Local runtime data and private memory
+data/
+conversation_history.json
+
+# User-local AERIS data outside repo
+/home/*/aeris/data/
+
+# Databases, logs, checkpoints, and generated artifacts
+*.sqlite
+*.sqlite3
+*.db
+*.log
+*.tmp
+*.pid
+
+# Model and training artifacts
+models/
+*.gguf
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+*.onnx
+
+# LoRA and trainer outputs
+lora_adapters/
+outputs/
+checkpoints/
+
+# Media artifacts from voice features
+*.wav
+*.mp3
+*.ogg
+
+# OS/IDE clutter
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+data/conversations/*.json

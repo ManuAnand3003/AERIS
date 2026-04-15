@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+limit_bytes=$((95 * 1024 * 1024))
+
+blocked_re='(\.env($|\.)|id_rsa|id_ed25519|secret|token|credentials|conversation_history\.json|chroma\.sqlite3|\.gguf$|\.safetensors$|\.pt$|\.pth$|\.ckpt$)'
+
+# Check staged files only (what will be pushed after commit).
+staged_files=$(git diff --cached --name-only --diff-filter=ACMRT || true)
+
+if [[ -z "$staged_files" ]]; then
+  exit 0
+fi
+
+violations=0
+
+while IFS= read -r f; do
+  [[ -z "$f" ]] && continue
+
+  if [[ "$f" =~ $blocked_re ]]; then
+    echo "[pre-push] blocked sensitive/model file: $f"
+    violations=1
+    continue
+  fi
+
+  if [[ -f "$f" ]]; then
+    size=$(wc -c < "$f")
+    if (( size > limit_bytes )); then
+      mb=$(awk -v s="$size" 'BEGIN { printf "%.1f", s/1024/1024 }')
+      echo "[pre-push] file exceeds 95MB: $f (${mb}MB)"
+      violations=1
+    fi
+  fi
+done <<< "$staged_files"
+
+if (( violations > 0 )); then
+  echo "[pre-push] Push blocked. Remove sensitive files and keep assets under 100MB."
+  exit 1
+fi
+
+exit 0
