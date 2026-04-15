@@ -10,6 +10,7 @@ from pathlib import Path
 from datetime import datetime
 from loguru import logger
 import config
+from system.capability_guard import capability_guard
 
 
 TOOLS_DIR = config.DATA_DIR / "tools"
@@ -69,6 +70,21 @@ BASE_TOOLS = {
         "parameters": {},
         "builtin": True
     },
+    "god_mode_status": {
+        "description": "Show current capability mode and scope",
+        "parameters": {},
+        "builtin": True
+    },
+    "god_mode_enable": {
+        "description": "Enable god mode (broad Linux/Arch control, Windows/ASUS denied)",
+        "parameters": {},
+        "builtin": True
+    },
+    "god_mode_disable": {
+        "description": "Disable god mode and return to safer scoped control",
+        "parameters": {},
+        "builtin": True
+    },
 }
 
 
@@ -95,20 +111,28 @@ class ToolRegistry:
         """Execute built-in system tools"""
         try:
             if name == "read_file":
+                decision = capability_guard.check_path(params["path"])
+                if not decision.allowed:
+                    return f"[Blocked: {decision.reason}]"
+                capability_guard.audit("read_file", params["path"])
                 return Path(params["path"]).read_text(encoding="utf-8")
             
             elif name == "write_file":
+                decision = capability_guard.check_path(params["path"])
+                if not decision.allowed:
+                    return f"[Blocked: {decision.reason}]"
                 p = Path(params["path"])
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_text(params["content"], encoding="utf-8")
+                capability_guard.audit("write_file", params["path"])
                 return f"Written to {params['path']}"
             
             elif name == "run_shell":
                 cmd = params["command"]
-                # Safety: block destructive commands
-                blocked = ["rm -rf", "mkfs", "dd if=", ":(){", "fork bomb"]
-                if any(b in cmd for b in blocked):
-                    return "[Blocked: potentially destructive command]"
+                decision = capability_guard.check_command(cmd)
+                if not decision.allowed:
+                    return f"[Blocked: {decision.reason}]"
+                capability_guard.audit("run_shell", cmd[:240])
                 result = subprocess.run(
                     cmd, shell=True, capture_output=True,
                     text=True, timeout=30,
@@ -151,6 +175,15 @@ class ToolRegistry:
             elif name == "cyber_sandbox_check":
                 from agency.cyber import cyber
                 return await cyber.run_sandbox_escape_test()
+
+            elif name == "god_mode_status":
+                return f"{capability_guard.status()} | {capability_guard.scope()}"
+
+            elif name == "god_mode_enable":
+                return capability_guard.enable_god_mode()
+
+            elif name == "god_mode_disable":
+                return capability_guard.disable_god_mode()
 
         except Exception as e:
             return f"[Tool error: {e}]"

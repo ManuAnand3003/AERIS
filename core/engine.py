@@ -16,6 +16,7 @@ from personality.expression_style import apply_expression_style
 from personality.voice import voice
 from system.monitor import monitor
 from system.feature_controller import feature_controller
+from system.capability_guard import capability_guard
 from agency.cyber import cyber
 from agency.tool_registry import tool_registry
 from growth.idle_daemon import IdleDaemon
@@ -130,6 +131,19 @@ def resolve_policy_intent(user_text: str) -> str | None:
     return None
 
 
+def resolve_god_mode_intent(user_text: str) -> str | None:
+    text = user_text.lower().strip()
+    if text in {"god mode", "god mode status", "god status", "capability status"}:
+        return "status"
+    if any(k in text for k in ["enable god mode", "god mode on", "unleash", "free mode"]):
+        return "on"
+    if any(k in text for k in ["disable god mode", "god mode off", "safe mode"]):
+        return "off"
+    if text in {"god mode scope", "god scope", "capability scope"}:
+        return "scope"
+    return None
+
+
 async def main():
     print(BANNER)
     print(f"\n  {monitor.get_status_string()}\n")
@@ -158,7 +172,7 @@ async def main():
     Path("/tmp/aeris_last_msg").write_text(wake_msg[:80], encoding="utf-8")
     print_health(model_manager)
     print("─" * 60)
-    print("  'lock in' / 'unlock'  ·  'status'  ·  'memory'  ·  'health'  ·  'features'  ·  'feature web on/off'  ·  'feature widget on/off'  ·  'autopilot on/off'  ·  'policy status/balanced/full_online/eco'  ·  'cyber self/home/sandbox'  ·  'voice on/off/status'  ·  'quit'")
+    print("  'lock in' / 'unlock'  ·  'status'  ·  'memory'  ·  'health'  ·  'features'  ·  'feature web on/off'  ·  'feature widget on/off'  ·  'autopilot on/off'  ·  'policy status/balanced/full_online/eco'  ·  'god mode on/off/status/scope'  ·  'cyber self/home/sandbox'  ·  'voice on/off/status'  ·  'quit'")
     print("─" * 60 + "\n")
 
     voice_enabled = False
@@ -229,6 +243,20 @@ async def main():
                 print(f"\nAERIS: {feature_controller.set_policy_profile(policy_intent)}\n")
                 continue
 
+            god_intent = resolve_god_mode_intent(user_input)
+            if god_intent == "status":
+                print(f"\nAERIS: {capability_guard.status()}\n")
+                continue
+            if god_intent == "scope":
+                print(f"\nAERIS: {capability_guard.scope()}\n")
+                continue
+            if god_intent == "on":
+                print(f"\nAERIS: {capability_guard.enable_god_mode()}\n")
+                continue
+            if god_intent == "off":
+                print(f"\nAERIS: {capability_guard.disable_god_mode()}\n")
+                continue
+
             if user_input.lower() == "what did you do":
                 print(f"\nAERIS: {idle_daemon.get_report()}\n")
                 continue
@@ -270,6 +298,22 @@ async def main():
                 if profile:
                     print(f"\nAERIS: {feature_controller.set_policy_profile(profile)}\n")
                     continue
+
+            if user_input.lower() == "god mode on":
+                print(f"\nAERIS: {capability_guard.enable_god_mode()}\n")
+                continue
+
+            if user_input.lower() == "god mode off":
+                print(f"\nAERIS: {capability_guard.disable_god_mode()}\n")
+                continue
+
+            if user_input.lower() == "god mode status":
+                print(f"\nAERIS: {capability_guard.status()}\n")
+                continue
+
+            if user_input.lower() == "god mode scope":
+                print(f"\nAERIS: {capability_guard.scope()}\n")
+                continue
 
             if user_input.lower() == "quit":
                 print("\nAERIS: See you soon. 💙")
