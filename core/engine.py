@@ -144,6 +144,18 @@ def resolve_god_mode_intent(user_text: str) -> str | None:
     return None
 
 
+def resolve_approval_intent(user_text: str) -> tuple[str, str | None] | None:
+    text = user_text.strip()
+    low = text.lower()
+    if low in {"approvals", "list approvals", "pending approvals"}:
+        return ("list", None)
+    if low.startswith("approve "):
+        return ("approve", text[8:].strip())
+    if low.startswith("reject "):
+        return ("reject", text[7:].strip())
+    return None
+
+
 async def main():
     print(BANNER)
     print(f"\n  {monitor.get_status_string()}\n")
@@ -172,7 +184,7 @@ async def main():
     Path("/tmp/aeris_last_msg").write_text(wake_msg[:80], encoding="utf-8")
     print_health(model_manager)
     print("─" * 60)
-    print("  'lock in' / 'unlock'  ·  'status'  ·  'memory'  ·  'health'  ·  'features'  ·  'feature web on/off'  ·  'feature widget on/off'  ·  'autopilot on/off'  ·  'policy status/balanced/full_online/eco'  ·  'god mode on/off/status/scope'  ·  'cyber self/home/sandbox'  ·  'voice on/off/status'  ·  'quit'")
+    print("  'lock in' / 'unlock'  ·  'status'  ·  'memory'  ·  'health'  ·  'features'  ·  'feature web on/off'  ·  'feature widget on/off'  ·  'autopilot on/off'  ·  'policy status/balanced/full_online/eco'  ·  'god mode on/off/status/scope'  ·  'approvals'  ·  'approve <id>'  ·  'reject <id>'  ·  'cyber self/home/sandbox'  ·  'voice on/off/status'  ·  'quit'")
     print("─" * 60 + "\n")
 
     voice_enabled = False
@@ -256,6 +268,22 @@ async def main():
             if god_intent == "off":
                 print(f"\nAERIS: {capability_guard.disable_god_mode()}\n")
                 continue
+
+            approval_intent = resolve_approval_intent(user_input)
+            if approval_intent:
+                action, approval_id = approval_intent
+                if action == "list":
+                    out = await tool_registry.execute("approvals_list", {})
+                    print(f"\nAERIS: {out}\n")
+                    continue
+                if action == "approve" and approval_id:
+                    out = await tool_registry.execute("approval_grant", {"id": approval_id})
+                    print(f"\nAERIS: {out}\n")
+                    continue
+                if action == "reject" and approval_id:
+                    out = await tool_registry.execute("approval_reject", {"id": approval_id})
+                    print(f"\nAERIS: {out}\n")
+                    continue
 
             if user_input.lower() == "what did you do":
                 print(f"\nAERIS: {idle_daemon.get_report()}\n")

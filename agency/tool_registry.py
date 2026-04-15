@@ -85,6 +85,21 @@ BASE_TOOLS = {
         "parameters": {},
         "builtin": True
     },
+    "approvals_list": {
+        "description": "List pending high-risk action approvals",
+        "parameters": {},
+        "builtin": True
+    },
+    "approval_grant": {
+        "description": "Grant a pending approval by id",
+        "parameters": {"id": "string"},
+        "builtin": True
+    },
+    "approval_reject": {
+        "description": "Reject a pending approval by id",
+        "parameters": {"id": "string"},
+        "builtin": True
+    },
 }
 
 
@@ -118,8 +133,10 @@ class ToolRegistry:
                 return Path(params["path"]).read_text(encoding="utf-8")
             
             elif name == "write_file":
-                decision = capability_guard.check_path(params["path"])
+                decision = capability_guard.check_write_path(params["path"])
                 if not decision.allowed:
+                    if decision.pending_approval and decision.approval_id:
+                        return f"[Approval required: {decision.reason}. Use: approve {decision.approval_id}]"
                     return f"[Blocked: {decision.reason}]"
                 p = Path(params["path"])
                 p.parent.mkdir(parents=True, exist_ok=True)
@@ -131,6 +148,8 @@ class ToolRegistry:
                 cmd = params["command"]
                 decision = capability_guard.check_command(cmd)
                 if not decision.allowed:
+                    if decision.pending_approval and decision.approval_id:
+                        return f"[Approval required: {decision.reason}. Use: approve {decision.approval_id}]"
                     return f"[Blocked: {decision.reason}]"
                 capability_guard.audit("run_shell", cmd[:240])
                 result = subprocess.run(
@@ -184,6 +203,27 @@ class ToolRegistry:
 
             elif name == "god_mode_disable":
                 return capability_guard.disable_god_mode()
+
+            elif name == "approvals_list":
+                pending = capability_guard.list_approvals()
+                if not pending:
+                    return "No pending approvals."
+                lines = ["Pending approvals:"]
+                for a in pending:
+                    lines.append(f"  - {a.get('id')}: {a.get('action')} | {a.get('reason')} | {a.get('target')[:120]}")
+                return "\n".join(lines)
+
+            elif name == "approval_grant":
+                approval_id = str(params.get("id", "")).strip()
+                if not approval_id:
+                    return "Missing approval id"
+                return "Approval granted." if capability_guard.approve(approval_id) else "Approval id not found."
+
+            elif name == "approval_reject":
+                approval_id = str(params.get("id", "")).strip()
+                if not approval_id:
+                    return "Missing approval id"
+                return "Approval rejected." if capability_guard.reject(approval_id) else "Approval id not found."
 
         except Exception as e:
             return f"[Tool error: {e}]"

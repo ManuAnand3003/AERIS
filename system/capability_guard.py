@@ -7,8 +7,10 @@ God mode broadens Linux/Arch access while still blocking Windows/ASUS paths.
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
+from uuid import uuid4
 
 from loguru import logger
 
@@ -16,6 +18,7 @@ import config
 
 
 MODE_FILE = config.DATA_DIR / "identity" / "capability_mode.json"
+APPROVALS_FILE = config.DATA_DIR / "identity" / "pending_approvals.json"
 AUDIT_LOG = config.LOGS_DIR / "god_mode_actions.log"
 
 
@@ -23,6 +26,8 @@ AUDIT_LOG = config.LOGS_DIR / "god_mode_actions.log"
 class CapabilityDecision:
     allowed: bool
     reason: str
+    pending_approval: bool = False
+    approval_id: str | None = None
 
 
 class CapabilityGuard:
@@ -35,6 +40,33 @@ class CapabilityGuard:
             "program files",
             "program files (x86)",
             "asus",
+        ]
+        self._high_risk_tokens = [
+            "sudo ",
+            "systemctl",
+            "pacman",
+            "yay ",
+            "mkinitcpio",
+            "grub",
+            "iptables",
+            "nft ",
+            "ufw ",
+            "chmod ",
+            "chown ",
+            "useradd",
+            "usermod",
+            "passwd",
+            "rm -rf",
+            "dd if=",
+            "mount ",
+            "umount ",
+        ]
+        self._high_risk_path_prefixes = [
+            "/etc",
+            "/usr",
+            "/boot",
+            "/var/lib",
+            "/opt",
         ]
         self._load_mode()
 
@@ -97,12 +129,75 @@ class CapabilityGuard:
             return CapabilityDecision(False, "blocked: Windows/ASUS target in command")
 
         if self.mode == "god":
+            if self._is_high_risk_command(low):
+                approval_id = self.request_approval("run_shell", cmd, "high-risk system command")
+                return CapabilityDecision(
+                    False,
+                    f"approval required for high-risk command (id: {approval_id})",
+                    pending_approval=True,
+                    approval_id=approval_id,
+                )
             return CapabilityDecision(True, "allowed")
 
         if any(tok in low for tok in ["systemctl", "pacman", "yay", "sudo", "chmod", "chown"]):
             return CapabilityDecision(False, "blocked: elevated/system command in normal mode")
 
         return CapabilityDecision(True, "allowed")
+
+    def check_write_path(self, path_text: str) -> CapabilityDecision:
+        base = self.check_path(path_text)
+        if not base.allowed:
+            return base
+
+        if self.mode == "god":
+            low = path_text.strip().lower()
+            if any(low.startswith(prefix) for prefix in self._high_risk_path_prefixes):
+                approval_id = self.request_approval("write_file", path_text, "high-risk system path write")
+                return CapabilityDecision(
+                    False,
+                    f"approval required for high-risk write (id: {approval_id})",
+                    pending_approval=True,
+                    approval_id=approval_id,
+                )
+
+        return CapabilityDecision(True, "allowed")
+
+    def request_approval(self, action: str, target: str, reason: str) -> str:
+        approvals = self._read_approvals()
+        approval_id = uuid4().hex[:8]
+        approvals.append(
+            {
+                "id": approval_id,
+                "action": action,
+                "target": target,
+                "reason": reason,
+                "created": datetime.now().isoformat(),
+            }
+        )
+        self._write_approvals(approvals)
+        self.audit("approval_requested", f"{action}:{approval_id}:{reason}")
+        return approval_id
+
+    def list_approvals(self) -> list[dict]:
+        return self._read_approvals()
+
+    def approve(self, approval_id: str) -> bool:
+        approvals = self._read_approvals()
+        kept = [a for a in approvals if a.get("id") != approval_id]
+        if len(kept) == len(approvals):
+            return False
+        self._write_approvals(kept)
+        self.audit("approval_granted", approval_id)
+        return True
+
+    def reject(self, approval_id: str) -> bool:
+        approvals = self._read_approvals()
+        kept = [a for a in approvals if a.get("id") != approval_id]
+        if len(kept) == len(approvals):
+            return False
+        self._write_approvals(kept)
+        self.audit("approval_rejected", approval_id)
+        return True
 
     def audit(self, action: str, target: str) -> None:
         AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
@@ -112,6 +207,9 @@ class CapabilityGuard:
 
     def _contains_denied_marker(self, text: str) -> bool:
         return any(marker in text for marker in self._deny_markers)
+
+    def _is_high_risk_command(self, text: str) -> bool:
+        return any(token in text for token in self._high_risk_tokens)
 
     def _load_mode(self) -> None:
         try:
@@ -126,6 +224,20 @@ class CapabilityGuard:
     def _save_mode(self) -> None:
         MODE_FILE.parent.mkdir(parents=True, exist_ok=True)
         MODE_FILE.write_text(json.dumps({"mode": self.mode}, indent=2), encoding="utf-8")
+
+    def _read_approvals(self) -> list[dict]:
+        try:
+            if APPROVALS_FILE.exists():
+                data = json.loads(APPROVALS_FILE.read_text(encoding="utf-8"))
+                if isinstance(data, list):
+                    return data
+        except Exception as e:
+            logger.warning(f"Failed to read approvals: {e}")
+        return []
+
+    def _write_approvals(self, approvals: list[dict]) -> None:
+        APPROVALS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        APPROVALS_FILE.write_text(json.dumps(approvals, indent=2), encoding="utf-8")
 
 
 capability_guard = CapabilityGuard()
